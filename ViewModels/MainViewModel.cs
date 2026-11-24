@@ -28,9 +28,12 @@ public sealed partial class MainViewModel : ObservableObject, IModelActions, IDi
     private readonly List<double> _utilization = [];
     private readonly List<double> _memory = [];
     private readonly List<double> _power = [];
+    private readonly List<double> _cpu = [];
+    private readonly List<double> _ram = [];
 
     private OllamaService? _ollama;
     private GpuService? _gpu;
+    private SystemService? _system;
     private DockerService? _docker;
     private IReadOnlyList<OllamaRunningModel> _running = [];
     private int _connection;
@@ -51,6 +54,7 @@ public sealed partial class MainViewModel : ObservableObject, IModelActions, IDi
 
     public ObservableCollection<ModelRow> Models { get; } = [];
     public ObservableCollection<ContainerRow> Containers { get; } = [];
+    public ObservableCollection<DiskRow> Disks { get; } = [];
 
     // Connection
     [ObservableProperty] private string _ollamaUrl;
@@ -72,6 +76,17 @@ public sealed partial class MainViewModel : ObservableObject, IModelActions, IDi
     [ObservableProperty] private IReadOnlyList<double> _utilizationHistory = [];
     [ObservableProperty] private IReadOnlyList<double> _memoryHistory = [];
     [ObservableProperty] private IReadOnlyList<double> _powerHistory = [];
+
+    // CPU, RAM and disks
+    [ObservableProperty] private string _systemMessage = "";
+    [ObservableProperty] private string _cpuText = "–";
+    [ObservableProperty] private string _cpuDetail = "";
+    [ObservableProperty] private string _ramText = "–";
+    [ObservableProperty] private string _ramDetail = "";
+    [ObservableProperty] private double _ramTotal = 1;
+    [ObservableProperty] private string _disksMessage = "Reading disks…";
+    [ObservableProperty] private IReadOnlyList<double> _cpuHistory = [];
+    [ObservableProperty] private IReadOnlyList<double> _ramHistory = [];
 
     // Ollama and containers
     [ObservableProperty] private string _ollamaStatus = "";
@@ -117,6 +132,7 @@ public sealed partial class MainViewModel : ObservableObject, IModelActions, IDi
         _ollama?.Dispose();
         _ollama = null;
         _gpu = null;
+        _system = null;
         _docker = null;
         _running = [];
         _slowRefreshDue = true;
@@ -125,7 +141,12 @@ public sealed partial class MainViewModel : ObservableObject, IModelActions, IDi
         _utilization.Clear();
         _memory.Clear();
         _power.Clear();
+        _cpu.Clear();
+        _ram.Clear();
         PublishHistory();
+        Disks.Clear();
+        SystemMessage = "";
+        DisksMessage = "Reading disks…";
         Models.Clear();
         Containers.Clear();
         OllamaStatus = "";
@@ -138,15 +159,17 @@ public sealed partial class MainViewModel : ObservableObject, IModelActions, IDi
         {
             var runner = new CommandRunner(SshHost);
             _gpu = new GpuService(runner);
+            _system = new SystemService(runner);
             _docker = new DockerService(runner);
             _ollama = new OllamaService(OllamaUrl);
-            MachineText = runner.IsRemote ? $"GPU and containers on {SshHost.Trim()} over SSH" : "GPU and containers on this machine";
+            MachineText = runner.IsRemote ? $"Watching {SshHost.Trim()} over SSH" : "Watching this machine";
         }
         catch (ArgumentException e)
         {
             ConnectionError = e.Message;
             MachineText = "";
             GpuMessage = "";
+            DisksMessage = "";
             ModelsMessage = "";
             ContainersMessage = "";
         }
@@ -157,7 +180,7 @@ public sealed partial class MainViewModel : ObservableObject, IModelActions, IDi
     {
         while (!_shutdown.IsCancellationRequested)
         {
-            await Task.WhenAll(RefreshGpuAsync(), RefreshRunningAsync());
+            await Task.WhenAll(RefreshGpuAsync(), RefreshSystemAsync(), RefreshRunningAsync());
             if (!await DelayAsync(FastInterval)) return;
         }
     }
@@ -222,6 +245,57 @@ public sealed partial class MainViewModel : ObservableObject, IModelActions, IDi
             if (connection == _connection)
                 GpuMessage = $"GPU: {e.Message}";
         }
+    }
+
+    private async Task RefreshSystemAsync()
+    {
+        if (_system is not { } system) return;
+        var connection = _connection;
+        try
+        {
+            var sample = await system.ReadAsync(_shutdown.Token);
+            if (connection != _connection) return;
+
+            SystemMessage = "";
+            CpuText = sample.CpuPercent is { } load ? $"{load:0} %" : "–";
+            var threads = sample.CpuThreads > 0 ? $"{sample.CpuThreads} threads" : "";
+            var temperature = sample.CpuTemperatureC is { } degrees ? $"{degrees:0} °C" : "";
+            CpuDetail = string.Join(" · ", new[] { threads, temperature }.Where(t => t.Length > 0));
+
+            RamText = $"{sample.MemoryUsedKb / KbPerGb:0.0} GB";
+            RamDetail = $"of {sample.MemoryTotalKb / KbPerGb:0.0} GB";
+            RamTotal = Math.Max(sample.MemoryTotalKb, 1);
+
+            if (sample.CpuPercent is { } percent)
+                Append(_cpu, percent);
+            Append(_ram, sample.MemoryUsedKb);
+            CpuHistory = _cpu.ToArray();
+            RamHistory = _ram.ToArray();
+
+            var rows = sample.Disks.Select(DescribeDisk).ToList();
+            if (!rows.SequenceEqual(Disks))
+            {
+                Disks.Clear();
+                foreach (var row in rows)
+                    Disks.Add(row);
+            }
+
+            DisksMessage = rows.Count == 0 ? "No disks found." : "";
+        }
+        catch (Exception e) when (IsExpected(e))
+        {
+            if (connection != _connection) return;
+            SystemMessage = $"CPU, RAM and disks: {e.Message}";
+            DisksMessage = "";
+        }
+    }
+
+    private const double KbPerGb = 1024 * 1024;
+
+    private static DiskRow DescribeDisk(DiskUsage disk)
+    {
+        var percent = disk.CapacityKb > 0 ? 100.0 * disk.UsedKb / disk.CapacityKb : 0;
+        return new DiskRow(disk.Mount, $"{disk.UsedKb / KbPerGb:0} of {disk.CapacityKb / KbPerGb:0} GB · {percent:0} %", percent);
     }
 
     private async Task RefreshRunningAsync()
@@ -480,6 +554,8 @@ public sealed partial class MainViewModel : ObservableObject, IModelActions, IDi
         UtilizationHistory = _utilization.ToArray();
         MemoryHistory = _memory.ToArray();
         PowerHistory = _power.ToArray();
+        CpuHistory = _cpu.ToArray();
+        RamHistory = _ram.ToArray();
     }
 
     private static bool IsExpected(Exception e)

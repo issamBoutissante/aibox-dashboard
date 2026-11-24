@@ -13,6 +13,18 @@ public sealed record GpuSample(
     double MemoryTotalMiB,
     double? PowerW);
 
+/// <summary>One reading of the machine itself. Sizes are in kibibytes, as Linux reports them.</summary>
+public sealed record SystemSample(
+    double? CpuPercent,
+    double? CpuTemperatureC,
+    int CpuThreads,
+    long MemoryTotalKb,
+    long MemoryUsedKb,
+    IReadOnlyList<DiskUsage> Disks);
+
+/// <summary>Space on one mounted disk. Capacity counts only what ordinary users can fill, as <c>df</c> does.</summary>
+public sealed record DiskUsage(string Device, string Mount, long UsedKb, long CapacityKb);
+
 public sealed record ContainerInfo(string Name, string Image, string State, string Status);
 
 public sealed class OllamaVersion

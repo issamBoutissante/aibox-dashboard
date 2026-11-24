@@ -5,7 +5,7 @@
         x:Class="AiBoxDashboard.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         Title="AI Box Dashboard"
-        Width="1080" Height="700" MinWidth="820" MinHeight="560">
+        Width="1080" Height="860" MinWidth="820" MinHeight="700">
 
     <Design.DataContext>
         <vm:MainViewModel />
@@ -110,7 +110,7 @@
             <Grid ColumnDefinitions="*,12,*,12,*,12,*">
                 <Border Grid.Column="0" Classes="card">
                     <StackPanel>
-                        <TextBlock Classes="muted" Text="Temperature" />
+                        <TextBlock Classes="muted" Text="GPU temperature" />
                         <TextBlock Classes="value" Text="{Binding TemperatureText}" />
                         <TextBlock Classes="muted" Text="scale 0–100 °C" />
                         <c:Sparkline Values="{Binding TemperatureHistory}" Minimum="0" Maximum="100" />
@@ -134,7 +134,7 @@
                 </Border>
                 <Border Grid.Column="6" Classes="card">
                     <StackPanel>
-                        <TextBlock Classes="muted" Text="Power draw" />
+                        <TextBlock Classes="muted" Text="GPU power draw" />
                         <TextBlock Classes="value" Text="{Binding PowerText}" />
                         <TextBlock Classes="muted" Text="last 4 minutes" />
                         <c:Sparkline Values="{Binding PowerHistory}" Minimum="0" Maximum="{Binding PowerMaximum}" />
@@ -143,6 +143,50 @@
             </Grid>
             <TextBlock Classes="error" Text="{Binding GpuMessage}"
                        IsVisible="{Binding GpuMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+            <!-- The machine itself: CPU, RAM and disks -->
+            <Grid ColumnDefinitions="*,12,*,12,*,12,*" Margin="0,4,0,0">
+                <Border Grid.Column="0" Classes="card">
+                    <StackPanel>
+                        <TextBlock Classes="muted" Text="CPU load" />
+                        <TextBlock Classes="value" Text="{Binding CpuText}" />
+                        <TextBlock Classes="muted" Text="{Binding CpuDetail}" />
+                        <c:Sparkline Values="{Binding CpuHistory}" Minimum="0" Maximum="100" />
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="2" Classes="card">
+                    <StackPanel>
+                        <TextBlock Classes="muted" Text="RAM in use" />
+                        <TextBlock Classes="value" Text="{Binding RamText}" />
+                        <TextBlock Classes="muted" Text="{Binding RamDetail}" />
+                        <c:Sparkline Values="{Binding RamHistory}" Minimum="0" Maximum="{Binding RamTotal}" />
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="4" Grid.ColumnSpan="3" Classes="card">
+                    <Grid RowDefinitions="Auto,Auto,*">
+                        <TextBlock Classes="muted" Text="Disks" />
+                        <TextBlock Grid.Row="1" Classes="muted" Margin="0,8,0,0" Text="{Binding DisksMessage}"
+                                   IsVisible="{Binding DisksMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        <ScrollViewer Grid.Row="2" MaxHeight="112" Margin="0,6,0,0">
+                            <ItemsControl ItemsSource="{Binding Disks}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:DiskRow">
+                                        <StackPanel Spacing="5" Margin="0,5">
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <TextBlock Text="{Binding Mount}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Grid.Column="1" Classes="muted" VerticalAlignment="Center" Text="{Binding UsageText}" />
+                                            </Grid>
+                                            <ProgressBar Minimum="0" Maximum="100" Value="{Binding Percent}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Grid>
+                </Border>
+            </Grid>
+            <TextBlock Classes="error" Text="{Binding SystemMessage}"
+                       IsVisible="{Binding SystemMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
         </StackPanel>
 
         <!-- Models and containers -->

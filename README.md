@@ -11,6 +11,7 @@ Built with .NET 11 and [Avalonia](https://avaloniaui.net), so the same code runs
 ## What it shows
 
 - **GPU**: temperature, load, video memory in use and power draw, each with a chart of the last four minutes.
+- **CPU, RAM and disks**: CPU load and temperature, memory in use, and how full each disk is. These need a Linux machine.
 - **Models**: every model Ollama has installed, whether it is loaded, how much of it sits on the GPU, and when it unloads.
 - **Model actions**: load a model into memory or unload it, pull a new model with a progress bar, and delete one from disk
   after a confirmation.
@@ -21,7 +22,7 @@ Built with .NET 11 and [Avalonia](https://avaloniaui.net), so the same code runs
 
 - .NET 11 SDK to build and run.
 - On the machine being watched: an NVIDIA GPU with `nvidia-smi`, [Ollama](https://ollama.com), and optionally Docker.
-- To watch another machine: key-based SSH access to it (the app runs `ssh <host> nvidia-smi` and `ssh <host> docker ps`;
+- To watch another machine: key-based SSH access to it (the app runs `nvidia-smi`, `docker ps` and a small read-only shell script there through `ssh <host>`;
   it never asks for or stores a password) and its Ollama port reachable over the network.
 
 ## Run
@@ -45,6 +46,7 @@ The same two settings are at the top of the window. Press **Connect** to apply a
 | Data | Source |
 |---|---|
 | GPU readings | `nvidia-smi --query-gpu=...`, every 2 seconds |
+| CPU, RAM and disks | `/proc/stat`, `/proc/meminfo`, `hwmon` and `df`, every 2 seconds |
 | Models and loaded state | Ollama HTTP API (`/api/tags`, `/api/ps`) |
 | Load and unload | Ollama `/api/generate` without a prompt (`keep_alive: 0` to unload) |
 | Pull and delete | Ollama `/api/pull` (streamed progress) and `/api/delete` |
