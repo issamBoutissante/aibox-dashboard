@@ -1,0 +1,68 @@
+using System;
+using System.Collections.Generic;
+using System.Text.Json.Serialization;
+
+namespace AiBoxDashboard.Models;
+
+/// <summary>One reading of the first NVIDIA GPU.</summary>
+public sealed record GpuSample(
+    string Name,
+    double TemperatureC,
+    double UtilizationPercent,
+    double MemoryUsedMiB,
+    double MemoryTotalMiB,
+    double? PowerW);
+
+public sealed record ContainerInfo(string Name, string Image, string State, string Status);
+
+public sealed class OllamaVersion
+{
+    public string Version { get; set; } = "";
+}
+
+public sealed class OllamaTagList
+{
+    public List<OllamaModel> Models { get; set; } = [];
+}
+
+public sealed class OllamaModel
+{
+    public string Name { get; set; } = "";
+    public long Size { get; set; }
+    public OllamaModelDetails? Details { get; set; }
+}
+
+public sealed class OllamaModelDetails
+{
+    public string? ParameterSize { get; set; }
+    public string? QuantizationLevel { get; set; }
+}
+
+public sealed class OllamaRunningList
+{
+    public List<OllamaRunningModel> Models { get; set; } = [];
+}
+
+public sealed class OllamaRunningModel
+{
+    public string Name { get; set; } = "";
+    public long Size { get; set; }
+    public long SizeVram { get; set; }
+    public DateTimeOffset? ExpiresAt { get; set; }
+}
+
+public sealed class OllamaGenerateResult
+{
+    public long EvalCount { get; set; }
+
+    /// <summary>Generation time in nanoseconds.</summary>
+    public long EvalDuration { get; set; }
+}
+
+public sealed class DockerPsLine
+{
+    [JsonPropertyName("Names")] public string Names { get; set; } = "";
+    [JsonPropertyName("Image")] public string Image { get; set; } = "";
+    [JsonPropertyName("State")] public string State { get; set; } = "";
+    [JsonPropertyName("Status")] public string Status { get; set; } = "";
+}
