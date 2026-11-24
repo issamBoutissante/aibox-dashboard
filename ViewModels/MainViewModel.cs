@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Net.Http;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using AiBoxDashboard.Models;
@@ -12,7 +13,7 @@ using CommunityToolkit.Mvvm.Input;
 
 namespace AiBoxDashboard.ViewModels;
 
-public sealed partial class MainViewModel : ObservableObject, IDisposable
+public sealed partial class MainViewModel : ObservableObject, IModelActions, IDisposable
 {
     /// <summary>Readings kept for the charts: 120 readings at 2 s is four minutes.</summary>
     public const int HistoryLength = 120;
@@ -33,6 +34,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private DockerService? _docker;
     private IReadOnlyList<OllamaRunningModel> _running = [];
     private int _connection;
+    private CancellationTokenSource? _pull;
     private bool _slowRefreshDue = true;
 
     public MainViewModel() : this(new AppSettings())
@@ -76,6 +78,19 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _modelsMessage = "Asking Ollama…";
     [ObservableProperty] private string _containersMessage = "Asking Docker…";
 
+    // Pulling a new model
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(PullCommand))]
+    private string _pullName = "";
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(PullCommand))]
+    private bool _isPulling;
+
+    [ObservableProperty] private string _pullStatus = "";
+    [ObservableProperty] private double _pullPercent;
+    [ObservableProperty] private bool _pullSizeUnknown = true;
+
     public void Start()
     {
         _ = RunFastAsync();
@@ -97,6 +112,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private void Connect()
     {
         _connection++;
+        _pull?.Cancel();
+        PullStatus = "";
         _ollama?.Dispose();
         _ollama = null;
         _gpu = null;
@@ -244,7 +261,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             for (var i = 0; i < wanted.Count; i++)
             {
                 if (existing.ContainsKey(wanted[i].Name)) continue;
-                Models.Insert(Math.Min(i, Models.Count), new ModelRow(wanted[i].Name, Describe(wanted[i]), MeasureSpeedAsync));
+                Models.Insert(Math.Min(i, Models.Count), new ModelRow(wanted[i].Name, Describe(wanted[i]), this));
             }
 
             ModelsMessage = Models.Count == 0 ? "No models installed. Pull one with: ollama pull <model>" : "";
@@ -288,25 +305,135 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    private async Task MeasureSpeedAsync(ModelRow row)
+    public async Task MeasureSpeedAsync(ModelRow row)
     {
-        if (_ollama is not { } ollama || row.IsMeasuring) return;
-        row.IsMeasuring = true;
-        row.SpeedText = "measuring…";
-        try
+        if (_ollama is not { } ollama) return;
+        await RunOnRowAsync(row, "measuring speed…", async () =>
         {
             var tokensPerSecond = await ollama.MeasureSpeedAsync(row.Name, _shutdown.Token);
-            row.SpeedText = $"{tokensPerSecond:0.0} tokens/s";
+            return $"{tokensPerSecond:0.0} tokens/s";
+        });
+        await RefreshRunningAsync();
+    }
+
+    public async Task ToggleLoadAsync(ModelRow row)
+    {
+        if (_ollama is not { } ollama) return;
+        var unload = row.IsLoaded;
+        await RunOnRowAsync(row, unload ? "unloading…" : "loading…", async () =>
+        {
+            if (unload)
+                await ollama.UnloadAsync(row.Name, _shutdown.Token);
+            else
+                await ollama.LoadAsync(row.Name, _shutdown.Token);
+            return "";
+        });
+        await RefreshRunningAsync();
+    }
+
+    public async Task DeleteAsync(ModelRow row)
+    {
+        if (_ollama is not { } ollama) return;
+        var deleted = await RunOnRowAsync(row, "deleting…", async () =>
+        {
+            await ollama.DeleteAsync(row.Name, _shutdown.Token);
+            return "";
+        });
+        if (deleted)
+            await RefreshModelsAsync();
+    }
+
+    /// <summary>Runs one action on a model row, showing its progress and any failure on the row itself.</summary>
+    private async Task<bool> RunOnRowAsync(ModelRow row, string busyText, Func<Task<string>> action)
+    {
+        if (row.IsBusy) return false;
+        row.IsBusy = true;
+        row.StatusText = busyText;
+        try
+        {
+            row.StatusText = await action();
+            return true;
         }
         catch (Exception e) when (IsExpected(e))
         {
-            row.SpeedText = $"failed: {e.Message}";
+            row.StatusText = $"Failed: {e.Message}";
+            return false;
+        }
+        catch (OperationCanceledException)
+        {
+            row.StatusText = "";
+            return false;
         }
         finally
         {
-            row.IsMeasuring = false;
+            row.IsBusy = false;
         }
     }
+
+    private bool CanPull() => !IsPulling && PullName.Trim().Length > 0;
+
+    [RelayCommand(CanExecute = nameof(CanPull))]
+    private async Task PullAsync()
+    {
+        if (_ollama is not { } ollama) return;
+        var name = PullName.Trim();
+        if (!ModelNamePattern().IsMatch(name))
+        {
+            PullStatus = "A model name looks like llama3.2:3b or hf.co/user/repo:Q4_K_M.";
+            return;
+        }
+
+        var connection = _connection;
+        using var pull = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
+        _pull = pull;
+        IsPulling = true;
+        PullPercent = 0;
+        PullSizeUnknown = true;
+        PullStatus = $"Pulling {name}…";
+
+        // Progress<T> reports on the UI thread it was created on,
+        // and may deliver its last report after the pull has returned, so stop listening once it has.
+        var listening = true;
+        var progress = new Progress<PullProgress>(p =>
+        {
+            if (!listening || pull.IsCancellationRequested) return;
+            PullSizeUnknown = p.Fraction is null;
+            PullPercent = (p.Fraction ?? 0) * 100;
+            PullStatus = p.Fraction is { } fraction ? $"Pulling {name}: {fraction:P0}" : $"Pulling {name}: {p.Status}";
+        });
+
+        try
+        {
+            await ollama.PullAsync(name, progress, pull.Token);
+            listening = false;
+            if (connection != _connection) return;
+            PullStatus = $"Pulled {name}.";
+            PullName = "";
+            await RefreshModelsAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            if (connection == _connection)
+                PullStatus = $"Stopped pulling {name}. Pull it again to resume.";
+        }
+        catch (Exception e) when (IsExpected(e))
+        {
+            if (connection == _connection)
+                PullStatus = $"Could not pull {name}: {e.Message}";
+        }
+        finally
+        {
+            listening = false;
+            if (ReferenceEquals(_pull, pull)) _pull = null;
+            IsPulling = false;
+        }
+    }
+
+    [RelayCommand]
+    private void CancelPull() => _pull?.Cancel();
+
+    [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9._/:-]*$")]
+    private static partial Regex ModelNamePattern();
 
     private void ApplyRunning()
     {
@@ -320,7 +447,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     private static string Describe(OllamaModel model)
     {
-        var parts = new List<string> { $"{model.Size / 1e9:0.0} GB" };
+        var parts = new List<string> { model.Size >= 1e9 ? $"{model.Size / 1e9:0.0} GB" : $"{model.Size / 1e6:0} MB" };
         if (!string.IsNullOrEmpty(model.Details?.ParameterSize)) parts.Add(model.Details.ParameterSize);
         if (!string.IsNullOrEmpty(model.Details?.QuantizationLevel)) parts.Add(model.Details.QuantizationLevel);
         return string.Join(" · ", parts);

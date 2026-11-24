@@ -12,6 +12,8 @@ Built with .NET 11 and [Avalonia](https://avaloniaui.net), so the same code runs
 
 - **GPU**: temperature, load, video memory in use and power draw, each with a chart of the last four minutes.
 - **Models**: every model Ollama has installed, whether it is loaded, how much of it sits on the GPU, and when it unloads.
+- **Model actions**: load a model into memory or unload it, pull a new model with a progress bar, and delete one from disk
+  after a confirmation.
 - **Speed**: "Measure speed" generates a short text and reports tokens per second. It loads the model if it is not loaded.
 - **Containers**: name, image and status of each Docker container.
 
@@ -44,6 +46,8 @@ The same two settings are at the top of the window. Press **Connect** to apply a
 |---|---|
 | GPU readings | `nvidia-smi --query-gpu=...`, every 2 seconds |
 | Models and loaded state | Ollama HTTP API (`/api/tags`, `/api/ps`) |
+| Load and unload | Ollama `/api/generate` without a prompt (`keep_alive: 0` to unload) |
+| Pull and delete | Ollama `/api/pull` (streamed progress) and `/api/delete` |
 | Speed | Ollama `/api/generate` with a fixed 128-token request |
 | Containers | `docker ps --all`, every 10 seconds |
 

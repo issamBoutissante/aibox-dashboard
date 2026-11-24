@@ -148,7 +148,7 @@
         <!-- Models and containers -->
         <Grid Grid.Row="3" ColumnDefinitions="3*,12,2*" Margin="20,14,20,20">
             <Border Grid.Column="0" Classes="card">
-                <Grid RowDefinitions="Auto,Auto,*">
+                <Grid RowDefinitions="Auto,Auto,*,Auto">
                     <Grid ColumnDefinitions="*,Auto">
                         <TextBlock Classes="heading" Text="Models" />
                         <TextBlock Grid.Column="1" Classes="muted" VerticalAlignment="Center" Text="{Binding OllamaStatus}" />
@@ -159,24 +159,58 @@
                         <ItemsControl ItemsSource="{Binding Models}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:ModelRow">
-                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,8">
+                                    <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,8">
                                         <Ellipse Classes="dot" Classes.on="{Binding IsLoaded}" Margin="0,0,12,0" />
                                         <StackPanel Grid.Column="1" Spacing="2">
                                             <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Classes="muted" Text="{Binding Details}" />
                                             <TextBlock Classes="muted" Text="{Binding LoadedText}" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" FontSize="12"
+                                                       IsVisible="{Binding StatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                         </StackPanel>
-                                        <TextBlock Grid.Column="2" Text="{Binding SpeedText}" VerticalAlignment="Center"
-                                                   Margin="12,0" MaxWidth="220" TextWrapping="Wrap" />
-                                        <Button Grid.Column="3" Content="Measure speed" VerticalAlignment="Center"
-                                                Command="{Binding MeasureSpeedCommand}"
-                                                IsEnabled="{Binding !IsMeasuring}"
-                                                ToolTip.Tip="Generates a short text to measure tokens per second. Loads the model into GPU memory if it is not loaded." />
+
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
+                                                    Margin="12,0,0,0" IsEnabled="{Binding !IsBusy}"
+                                                    IsVisible="{Binding !IsConfirmingDelete}">
+                                            <Button Content="{Binding LoadButtonText}" MinWidth="72" HorizontalContentAlignment="Center"
+                                                    Command="{Binding ToggleLoadCommand}"
+                                                    ToolTip.Tip="Load puts the model into memory so the first answer is fast. Unload frees that memory now." />
+                                            <Button Content="Measure speed" Command="{Binding MeasureSpeedCommand}"
+                                                    ToolTip.Tip="Generates a short text to measure tokens per second. Loads the model if it is not loaded." />
+                                            <Button Content="Delete…" Command="{Binding AskDeleteCommand}"
+                                                    ToolTip.Tip="Removes the model from disk, after you confirm." />
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
+                                                    Margin="12,0,0,0" IsVisible="{Binding IsConfirmingDelete}">
+                                            <TextBlock Text="Delete from disk?" VerticalAlignment="Center" Margin="0,0,4,0" />
+                                            <Button Content="Delete" Foreground="{DynamicResource ErrorBrush}"
+                                                    Command="{Binding ConfirmDeleteCommand}" />
+                                            <Button Content="Keep" Command="{Binding CancelDeleteCommand}" />
+                                        </StackPanel>
                                     </Grid>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </ScrollViewer>
+
+                    <!-- Pull a new model -->
+                    <StackPanel Grid.Row="3" Spacing="8" Margin="0,12,0,0">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                            <TextBox Text="{Binding PullName}" PlaceholderText="Model to pull, for example llama3.2:3b"
+                                     IsEnabled="{Binding !IsPulling}">
+                                <TextBox.KeyBindings>
+                                    <KeyBinding Gesture="Enter" Command="{Binding PullCommand}" />
+                                </TextBox.KeyBindings>
+                            </TextBox>
+                            <Button Grid.Column="1" Content="Pull" Command="{Binding PullCommand}" IsVisible="{Binding !IsPulling}" />
+                            <Button Grid.Column="1" Content="Stop" Command="{Binding CancelPullCommand}" IsVisible="{Binding IsPulling}" />
+                        </Grid>
+                        <ProgressBar Minimum="0" Maximum="100" Value="{Binding PullPercent}"
+                                     IsIndeterminate="{Binding PullSizeUnknown}" IsVisible="{Binding IsPulling}" />
+                        <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding PullStatus}"
+                                   IsVisible="{Binding PullStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    </StackPanel>
                 </Grid>
             </Border>
 

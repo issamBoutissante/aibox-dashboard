@@ -59,6 +59,24 @@ public sealed class OllamaGenerateResult
     public long EvalDuration { get; set; }
 }
 
+/// <summary>One line of the stream Ollama sends while pulling a model.</summary>
+public sealed class OllamaPullLine
+{
+    public string? Status { get; set; }
+    public string? Digest { get; set; }
+    public long? Total { get; set; }
+    public long? Completed { get; set; }
+    public string? Error { get; set; }
+}
+
+public sealed class OllamaError
+{
+    public string? Error { get; set; }
+}
+
+/// <summary>Download progress of a pull. <see cref="Fraction"/> is null while the size is unknown.</summary>
+public sealed record PullProgress(string Status, double? Fraction);
+
 public sealed class DockerPsLine
 {
     [JsonPropertyName("Names")] public string Names { get; set; } = "";
